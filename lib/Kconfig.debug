@@ -355,7 +355,8 @@ config SECTION_MISMATCH_WARN_ONLY
 # option on the architecture (regardless of KERNEL_DEBUG):
 #
 config ARCH_WANT_FRAME_POINTERS
-	bool
+	bool "Force using frame pointers"
+	default n
 	help
 
 config FRAME_POINTER
