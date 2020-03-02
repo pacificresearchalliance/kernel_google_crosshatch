@@ -227,10 +227,6 @@
 	STRUCT_ALIGN();							\
 	*(__tracepoints)						\
 	/* implement dynamic printk debug */				\
-	. = ALIGN(8);                                                   \
-	VMLINUX_SYMBOL(__start___jump_table) = .;                       \
-	*(__jump_table)                                                 \
-	VMLINUX_SYMBOL(__stop___jump_table) = .;                        \
 	. = ALIGN(8);							\
 	VMLINUX_SYMBOL(__start___verbose) = .;                          \
 	*(__verbose)                                                    \
@@ -269,6 +265,11 @@
 	*(.data..init_task)						\
 	VMLINUX_SYMBOL(__end_init_task) = .;
 
+#define JUMP_TABLE_DATA								\
+	. = ALIGN(8);									\
+	VMLINUX_SYMBOL(__start___jump_table) = .;		\
+	*(__jump_table)									\
+	VMLINUX_SYMBOL(__stop___jump_table) = .;		\
 /*
  * Allow architectures to handle ro_after_init data on their
  * own by defining an empty RO_AFTER_INIT_DATA.
@@ -277,6 +278,7 @@
 #define RO_AFTER_INIT_DATA						\
 	__start_data_ro_after_init = .;					\
 	*(.data..ro_after_init)						\
+	JUMP_TABLE_DATA								\
 	__end_data_ro_after_init = .;
 #endif
 
