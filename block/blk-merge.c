@@ -544,6 +544,12 @@ int blk_rq_map_sg_no_cluster(struct request_queue *q, struct request *rq,
 }
 EXPORT_SYMBOL(blk_rq_map_sg_no_cluster);
 
+static bool crypto_not_mergeable(const struct bio *bio, const struct bio *nxt,
+                                                unsigned int sectors)
+{
+        return (!pfk_allow_merge_bio(bio, nxt, sectors));
+}
+
 static inline int ll_new_hw_segment(struct request_queue *q,
 				    struct request *req,
 				    struct bio *bio)
@@ -554,6 +560,9 @@ static inline int ll_new_hw_segment(struct request_queue *q,
 		goto no_merge;
 
 	if (blk_integrity_merge_bio(q, req, bio) == false)
+		goto no_merge;
+
+	if (WARN_ON_ONCE(crypto_not_mergeable(bio, req->bio, bio_sectors(bio))))
 		goto no_merge;
 
 	/*
@@ -723,12 +732,6 @@ static void blk_account_io_merge(struct request *req)
 	}
 }
 
-static bool crypto_not_mergeable(const struct bio *bio, const struct bio *nxt,
-						unsigned int sectors)
-{
-	return (!pfk_allow_merge_bio(bio, nxt, sectors));
-}
-
 /*
  * Has to be called with the request spinlock acquired
  */
@@ -866,6 +869,9 @@ bool blk_rq_merge_ok(struct request *rq, struct bio *bio)
 	/* must be using the same buffer */
 	if (req_op(rq) == REQ_OP_WRITE_SAME &&
 	    !blk_write_same_mergeable(rq->bio, bio))
+		return false;
+
+	if (crypto_not_mergeable(bio, rq->bio, bio_sectors(bio)))
 		return false;
 
 	return true;

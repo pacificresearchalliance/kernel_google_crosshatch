@@ -14,13 +14,33 @@
 #include <linux/device-mapper.h>
 #include <linux/module.h>
 #include <linux/pfk.h>
+#ifdef CONFIG_DM_PERUSER_KEY
+	#include <linux/fs.h>
+	#include <linux/fscrypt.h>
+#endif
 
 #define DM_MSG_PREFIX "default-key"
+
+#ifdef CONFIG_DM_PERUSER_KEY
+#define UNKNOWN_USER (-1)
+struct user_key{
+	int32_t user_id;
+	uint8_t me_key_ref[FS_KEY_DESCRIPTOR_SIZE];
+	struct blk_encryption_key me_key;
+	uint8_t de_key_ref[FS_KEY_DESCRIPTOR_SIZE];
+	uint8_t ce_key_ref[FS_KEY_DESCRIPTOR_SIZE];
+	
+};
+#endif
 
 struct default_key_c {
 	struct dm_dev *dev;
 	sector_t start;
 	struct blk_encryption_key key;
+#ifdef CONFIG_DM_PERUSER_KEY
+	#define ANDROID_USERS_LIMIT 16
+	struct user_key user_keys[ANDROID_USERS_LIMIT];
+#endif
 };
 
 static void default_key_dtr(struct dm_target *ti)
@@ -42,6 +62,9 @@ static int default_key_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	unsigned long long tmp;
 	char dummy;
 	int err;
+#ifdef CONFIG_DM_PERUSER_KEY
+	uint8_t i;
+#endif
 
 	if (argc != 4) {
 		ti->error = "Invalid argument count";
@@ -117,6 +140,12 @@ static int default_key_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	 */
 	/*ti->num_write_same_bios = 1;*/
 
+#ifdef CONFIG_DM_PERUSER_KEY
+	for (i = 0; i < ANDROID_USERS_LIMIT; i++){
+		dkc->user_keys[i].user_id = UNKNOWN_USER;
+	}
+#endif
+
 	return 0;
 
 bad:
@@ -124,20 +153,152 @@ bad:
 	return err;
 }
 
+#ifdef CONFIG_DM_PERUSER_KEY
+static struct inode *dm_bio_get_inode(const struct bio *bio)
+{
+	if (!bio)
+		return NULL;
+	if (!bio_has_data((struct bio *)bio))
+		return NULL;
+	if (!bio->bi_io_vec)
+		return NULL;
+	if (!bio->bi_io_vec->bv_page)
+		return NULL;
+
+	if (PageAnon(bio->bi_io_vec->bv_page)) {
+		struct inode *inode;
+
+		// Using direct-io (O_DIRECT) without page cache
+		inode = dio_bio_get_inode((struct bio *)bio);
+
+		return inode;
+	}
+
+	if (!page_mapping(bio->bi_io_vec->bv_page))
+		return NULL;
+
+	return page_mapping(bio->bi_io_vec->bv_page)->host;
+}
+
+static int dm_get_key(const struct default_key_c *dkc, struct bio *bio,
+						const struct blk_encryption_key **me_key)
+{
+	struct inode *inode;
+	int i;
+	const struct blk_encryption_key *key = NULL;
+	uint8_t *key_ref = NULL;
+
+	if (!bio)
+		return -EINVAL;
+	if (!bio_has_data((struct bio *)bio))
+		return -EINVAL;
+	inode = dm_bio_get_inode(bio);
+	if (!inode){
+		return -EINVAL;
+	}
+	if (!IS_ENCRYPTED(inode)){
+		return -EINVAL;
+	}
+	// check key descriptor is not empty
+	for (i = 0; i < FS_KEY_DESCRIPTOR_SIZE; i++){
+		if (inode->i_key_desc[i] != 0){
+			key_ref = inode->i_key_desc;
+			break;
+		}
+	}
+	if (!key_ref){
+		return -EINVAL;
+	}
+	// search for user key
+	for (i = 0; i < ANDROID_USERS_LIMIT; i++){
+		if (!memcmp(key_ref, dkc->user_keys[i].de_key_ref, FS_KEY_DESCRIPTOR_SIZE)
+		  || !memcmp(key_ref, dkc->user_keys[i].ce_key_ref, FS_KEY_DESCRIPTOR_SIZE)){
+			key = &dkc->user_keys[i].me_key;
+			*me_key = key;
+			break;
+		}
+	}
+	if (!key){
+		return -EINVAL;
+	}
+	return 0;
+}
+#endif
+
 static int default_key_map(struct dm_target *ti, struct bio *bio)
 {
 	const struct default_key_c *dkc = ti->private;
+#ifdef CONFIG_DM_PERUSER_KEY
+	const struct blk_encryption_key *key = NULL;
+#endif
 
 	bio->bi_bdev = dkc->dev->bdev;
 	if (bio_sectors(bio)) {
 		bio->bi_iter.bi_sector = dkc->start +
 			dm_target_offset(ti, bio->bi_iter.bi_sector);
 	}
-
-	if (!bio->bi_crypt_key && !bio->bi_crypt_skip)
-		bio->bi_crypt_key = &dkc->key;
+	if (!bio->bi_crypt_key && !bio->bi_crypt_skip){
+		#ifdef CONFIG_DM_PERUSER_KEY
+			// use me key if valid
+			if (!dm_get_key(dkc, bio, &key)){
+				bio->bi_crypt_key = key;
+			} else {
+				bio->bi_crypt_key = &dkc->key;
+			}
+		#else
+			bio->bi_crypt_key = &dkc->key;
+		#endif
+	}
 
 	return DM_MAPIO_REMAPPED;
+}
+
+static int default_key_message(struct dm_target *ti, unsigned argc, char **argv)
+{
+#ifdef CONFIG_DM_PERUSER_KEY
+	struct default_key_c *dkc = ti->private;
+	uint8_t i;
+	uint16_t me_num;
+	int8_t err;
+
+	if (!argc){
+		return -ENODATA;
+	}
+#define TOKENS_IN_MESSAGE 5 //4 keys + 1 user_id
+	// Parse message with keys info from vold
+	sscanf(argv[0], "%d", &me_num);
+	if (argc != (1 + me_num*TOKENS_IN_MESSAGE)){
+		DMERR("Failed to read keys: %d", argc);
+		return -ENODATA;
+	}
+	if (me_num > ANDROID_USERS_LIMIT) me_num = ANDROID_USERS_LIMIT;
+	for (i = 0 ; i < me_num ; i++){
+		err = true;
+		if (sscanf(argv[i*TOKENS_IN_MESSAGE+1], "%d", &dkc->user_keys[i].user_id) == 1){
+			if (hex2bin(dkc->user_keys[i].me_key_ref, argv[i*TOKENS_IN_MESSAGE+2],
+					FS_KEY_DESCRIPTOR_SIZE) == 0) {
+				err = false;
+			}
+			if (hex2bin(dkc->user_keys[i].me_key.raw, argv[i*TOKENS_IN_MESSAGE+3],
+					BLK_ENCRYPTION_KEY_SIZE_AES_256_XTS) == 0) {
+				err = false;
+			}
+			if (hex2bin(dkc->user_keys[i].de_key_ref, argv[i*TOKENS_IN_MESSAGE+4],
+					FS_KEY_DESCRIPTOR_SIZE) == 0) {
+				err = false;
+			}
+			if (hex2bin(dkc->user_keys[i].ce_key_ref, argv[i*TOKENS_IN_MESSAGE+5],
+					FS_KEY_DESCRIPTOR_SIZE) == 0) {
+				err = false;
+			}
+		}
+		if (err){
+			dkc->user_keys[i].user_id = UNKNOWN_USER;
+			DMERR("Failed to parse keys: %s", argv[i*TOKENS_IN_MESSAGE+1]);
+		}
+	}
+#endif
+	return 0;
 }
 
 static void default_key_status(struct dm_target *ti, status_type_t type,
@@ -200,6 +361,7 @@ static struct target_type default_key_target = {
 	.ctr    = default_key_ctr,
 	.dtr    = default_key_dtr,
 	.map    = default_key_map,
+	.message = default_key_message,
 	.status = default_key_status,
 	.prepare_ioctl = default_key_prepare_ioctl,
 	.iterate_devices = default_key_iterate_devices,

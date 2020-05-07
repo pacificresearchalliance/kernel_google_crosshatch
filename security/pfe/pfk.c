@@ -452,6 +452,12 @@ bool pfk_allow_merge_bio(const struct bio *bio1, const struct bio *bio2,
 #ifdef CONFIG_DM_DEFAULT_KEY
 	key1 = bio1->bi_crypt_key;
 	key2 = bio2->bi_crypt_key;
+
+#ifdef CONFIG_DM_PERUSER_KEY
+	// better to compare two key_refs
+	if (bio1->bi_crypt_ref != bio2->bi_crypt_ref)
+		return false;
+#endif
 #endif
 
 	if (!pfk_is_ready())

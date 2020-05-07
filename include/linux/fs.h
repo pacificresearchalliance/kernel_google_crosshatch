@@ -729,6 +729,7 @@ struct inode {
 
 #ifdef CONFIG_FS_ENCRYPTION
 	struct fscrypt_info	*i_crypt_info;
+	u8 i_key_desc[FS_KEY_DESCRIPTOR_SIZE];
 #endif
 
 #if IS_ENABLED(CONFIG_FS_VERITY)
