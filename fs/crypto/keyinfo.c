@@ -390,6 +390,22 @@ err_free_mk:
 	return ERR_PTR(err);
 }
 
+
+uint8_t *fscrypt_get_key_ref(const struct inode *inode)
+{
+#ifdef CONFIG_DM_PERUSER_KEY
+	if (!inode || !inode->i_crypt_info){
+		return NULL;
+	}
+
+	return inode->i_crypt_info->ci_master_key_descriptor;
+#else
+	return NULL;
+#endif
+
+}
+EXPORT_SYMBOL(fscrypt_get_key_ref);
+
 static int derive_essiv_salt(const u8 *key, int keysize, u8 *salt)
 {
 	struct crypto_shash *tfm = READ_ONCE(essiv_hash_tfm);
@@ -559,6 +575,8 @@ int fscrypt_get_encryption_info(struct inode *inode)
 	crypt_info->ci_data_mode = ctx.contents_encryption_mode;
 	crypt_info->ci_filename_mode = ctx.filenames_encryption_mode;
 	memcpy(crypt_info->ci_master_key_descriptor, ctx.master_key_descriptor,
+	       FS_KEY_DESCRIPTOR_SIZE);
+	memcpy(inode->i_key_desc, ctx.master_key_descriptor,
 	       FS_KEY_DESCRIPTOR_SIZE);
 	memcpy(crypt_info->ci_nonce, ctx.nonce, FS_KEY_DERIVATION_NONCE_SIZE);
 

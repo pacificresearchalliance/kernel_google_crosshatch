@@ -110,6 +110,8 @@ extern int fscrypt_inherit_context(struct inode *, struct inode *,
 /* keyinfo.c */
 extern int fscrypt_get_encryption_info(struct inode *);
 extern void fscrypt_put_encryption_info(struct inode *);
+extern int fscrypt_get_master_key_ref(const struct inode *inode, u8 *key_ref, struct blk_encryption_key *key);
+extern u8 *fscrypt_get_key_ref(const struct inode *inode);
 
 /* fname.c */
 extern int fscrypt_setup_filename(struct inode *, const struct qstr *,
@@ -654,7 +656,7 @@ extern void fscrypt_set_ice_dun(const struct inode *inode,
 		struct bio *bio, u64 dun);
 extern void fscrypt_set_ice_skip(struct bio *bio, int bi_crypt_skip);
 extern bool fscrypt_mergeable_bio(struct bio *bio, u64 dun, bool bio_encrypted,
-		int bi_crypt_skip);
+		int bi_crypt_skip, u8 *bi_crypt_ref);
 #else
 static inline int fscrypt_using_hardware_encryption(const struct inode *inode)
 {
