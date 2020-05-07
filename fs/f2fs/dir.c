@@ -613,6 +613,14 @@ int f2fs_do_add_link(struct inode *dir, const struct qstr *name,
 	struct f2fs_dir_entry *de = NULL;
 	int err;
 
+	if (dir && IS_ENCRYPTED(dir) && !dir->i_crypt_info){
+		fscrypt_get_encryption_info(dir);
+		if (!dir->i_crypt_info){
+			if (!is_dot_dotdot(name))
+				return -ENOKEY;
+		}
+	}
+
 	err = fscrypt_setup_filename(dir, name, 0, &fname);
 	if (err)
 		return err;
@@ -869,6 +877,14 @@ static int f2fs_readdir(struct file *file, struct dir_context *ctx)
 		err = fscrypt_get_encryption_info(inode);
 		if (err && err != -ENOKEY)
 			goto out;
+
+		if (!inode->i_crypt_info){
+		// Exit if encrypted with ce key and key is locked
+			if (is_ce_storage(inode)){
+				err = -ENOKEY;
+				goto out;
+			}
+		}
 
 		err = fscrypt_fname_alloc_buffer(inode, F2FS_NAME_LEN, &fstr);
 		if (err < 0)

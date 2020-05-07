@@ -295,6 +295,12 @@ config DM_DEFAULT_KEY
 
 	  If unsure, say N.
 
+config DM_PERUSER_KEY
+tristate "Per-key crypt target support"
+	depends on DM_DEFAULT_KEY
+	---help---
+	  Encrypt metadata with multiple keys, one for each user.
+
 config DM_REQ_CRYPT
 	tristate "Req Crypt target support"
 	depends on BLK_DEV_DM

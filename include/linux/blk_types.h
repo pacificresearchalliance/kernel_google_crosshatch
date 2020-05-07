@@ -73,6 +73,10 @@ struct bio {
 	const struct blk_encryption_key	*bi_crypt_key;
 #ifdef CONFIG_DM_DEFAULT_KEY
 	int bi_crypt_skip;
+#ifdef CONFIG_DM_PERUSER_KEY
+	/* key reference to identify owner of the bio*/
+	u8 *bi_crypt_ref;
+#endif
 #endif
 
 	/*

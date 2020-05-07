@@ -193,11 +193,18 @@ EXPORT_SYMBOL_GPL(fscrypt_set_bio_crypt_ctx);
  * Return: true iff the I/O is mergeable
  */
 bool fscrypt_mergeable_bio(struct bio *bio, const struct inode *inode,
-			   u64 next_lblk)
+			   u64 next_lblk, u8 *bi_crypt_ref)
 {
 	const bool enc1 = (bio_dun(bio) != 0);
 	const bool enc2 = fscrypt_using_hardware_encryption(inode);
 	u64 next_dun;
+
+#ifdef CONFIG_DM_PERUSER_KEY
+	if (bi_crypt_ref != bio->bi_crypt_ref)
+		return false;
+#else
+	(void*)bi_crypt_ref;
+#endif
 
 	if (enc1 != enc2)
 		return false;

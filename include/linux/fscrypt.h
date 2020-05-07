@@ -126,6 +126,9 @@ extern int fscrypt_get_encryption_info(struct inode *);
 extern void fscrypt_put_encryption_info(struct inode *);
 extern void fscrypt_free_inode(struct inode *);
 
+extern int fscrypt_get_master_key_ref(const struct inode *inode, u8 *key_ref, struct blk_encryption_key *key);
+extern u8 *fscrypt_get_key_ref(const struct inode *inode);
+
 /* fname.c */
 extern int fscrypt_setup_filename(struct inode *, const struct qstr *,
 				int lookup, struct fscrypt_name *);
@@ -478,7 +481,7 @@ extern void fscrypt_set_bio_crypt_ctx(struct bio *bio,
 				      u64 first_lblk, gfp_t gfp_mask);
 
 extern bool fscrypt_mergeable_bio(struct bio *bio, const struct inode *inode,
-				  u64 next_lblk);
+				  u64 next_lblk, u8 *bi_crypt_ref);
 #else
 static inline int fscrypt_using_hardware_encryption(const struct inode *inode)
 {
@@ -491,7 +494,7 @@ static inline void fscrypt_set_bio_crypt_ctx(struct bio *bio,
 
 static inline bool fscrypt_mergeable_bio(struct bio *bio,
 					 const struct inode *inode,
-					 u64 next_lblk)
+					 u64 next_lblk, u8 *bi_crypt_ref)
 {
 	return true;
 }
@@ -737,5 +740,4 @@ static inline int fscrypt_encrypt_symlink(struct inode *inode,
 		return __fscrypt_encrypt_symlink(inode, target, len, disk_link);
 	return 0;
 }
-
 #endif	/* _LINUX_FSCRYPT_H */
