@@ -125,6 +125,12 @@ EXPORT_SYMBOL(fscrypt_set_ice_dun);
 void fscrypt_set_ice_skip(struct bio *bio, int bi_crypt_skip)
 {
 #ifdef CONFIG_DM_DEFAULT_KEY
+	/*
+	 * The f2fs garbage collector sets ->encrypted_page when it wants to
+	 * read/write raw data without encryption.
+	 * Set bi_crypt_skip according if encrypted_page is set
+	 */
+
 	bio->bi_crypt_skip = bi_crypt_skip;
 #endif
 }
@@ -136,7 +142,7 @@ EXPORT_SYMBOL(fscrypt_set_ice_skip);
  * guarantee consecutive LBAs as well as ino|pg->index.
  */
 bool fscrypt_mergeable_bio(struct bio *bio, u64 dun, bool bio_encrypted,
-						int bi_crypt_skip)
+						int bi_crypt_skip, u8 *bi_crypt_ref)
 {
 	if (!bio)
 		return true;
@@ -144,6 +150,12 @@ bool fscrypt_mergeable_bio(struct bio *bio, u64 dun, bool bio_encrypted,
 #ifdef CONFIG_DM_DEFAULT_KEY
 	if (bi_crypt_skip != bio->bi_crypt_skip)
 		return false;
+#ifdef CONFIG_DM_PERUSER_KEY
+	if (bi_crypt_ref != bio->bi_crypt_ref)
+		return false;
+#else
+	(void*)bi_crypt_ref;
+#endif
 #endif
 	/* if both of them are not encrypted, no further check is needed */
 	if (!bio_dun(bio) && !bio_encrypted)

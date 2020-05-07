@@ -516,6 +516,9 @@ int f2fs_submit_page_bio(struct f2fs_io_info *fio)
 	bio = __bio_alloc(fio->sbi, fio->new_blkaddr, fio->io_wbc,
 				1, is_read_io(fio->op), fio->type, fio->temp);
 
+#ifdef CONFIG_DM_PERUSER_KEY
+	bio->bi_crypt_ref = fscrypt_get_key_ref(inode);
+#endif
 	if (f2fs_may_encrypt_bio(inode, fio))
 		fscrypt_set_ice_dun(inode, bio, PG_DUN(inode, fio->page));
 	fscrypt_set_ice_skip(bio, fio->encrypted_page ? 1 : 0);
@@ -546,6 +549,7 @@ void f2fs_submit_page_write(struct f2fs_io_info *fio)
 	struct inode *inode;
 	bool bio_encrypted;
 	int bi_crypt_skip;
+	u8 *bi_crypt_ref = NULL;
 	u64 dun;
 
 	f2fs_bug_on(sbi, is_read_io(fio->op));
@@ -573,6 +577,7 @@ next:
 	dun = PG_DUN(inode, fio->page);
 	bi_crypt_skip = fio->encrypted_page ? 1 : 0;
 	bio_encrypted = f2fs_may_encrypt_bio(inode, fio);
+	bi_crypt_ref = fscrypt_get_key_ref(inode);
 
 	/* set submitted = true as a return value */
 	fio->submitted = true;
@@ -585,7 +590,7 @@ next:
 		__submit_merged_bio(io);
 
 	/* ICE support */
-	if (!fscrypt_mergeable_bio(io->bio, dun, bio_encrypted, bi_crypt_skip))
+	if (!fscrypt_mergeable_bio(io->bio, dun, bio_encrypted, bi_crypt_skip, bi_crypt_ref))
 		__submit_merged_bio(io);
 
 alloc_new:
@@ -599,6 +604,10 @@ alloc_new:
 		io->bio = __bio_alloc(sbi, fio->new_blkaddr, fio->io_wbc,
 						BIO_MAX_PAGES, false,
 						fio->type, fio->temp);
+
+#ifdef CONFIG_DM_PERUSER_KEY
+		io->bio->bi_crypt_ref = fscrypt_get_key_ref(inode);
+#endif
 		if (bio_encrypted)
 			fscrypt_set_ice_dun(inode, io->bio, dun);
 		fscrypt_set_ice_skip(io->bio, bi_crypt_skip);
@@ -645,6 +654,9 @@ static struct bio *f2fs_grab_read_bio(struct inode *inode, block_t blkaddr,
 	bio->bi_end_io = f2fs_read_end_io;
 	bio_set_op_attrs(bio, REQ_OP_READ, op_flag);
 
+#ifdef CONFIG_DM_PERUSER_KEY
+	bio->bi_crypt_ref = fscrypt_get_key_ref(inode);
+#endif
 	if (f2fs_encrypted_file(inode) &&
 	    !fscrypt_using_hardware_encryption(inode))
 		post_read_steps |= 1 << STEP_DECRYPT;
@@ -1609,6 +1621,7 @@ static int f2fs_mpage_readpages(struct address_space *mapping,
 	sector_t block_nr;
 	struct f2fs_map_blocks map;
 	bool bio_encrypted;
+	u8 *bi_crypt_ref;
 	u64 dun;
 
 	map.m_pblk = 0;
@@ -1697,7 +1710,8 @@ submit_and_realloc:
 
 		dun = PG_DUN(inode, page);
 		bio_encrypted = f2fs_may_encrypt_bio(inode, NULL);
-		if (!fscrypt_mergeable_bio(bio, dun, bio_encrypted, 0)) {
+		bi_crypt_ref = fscrypt_get_key_ref(inode);
+		if (!fscrypt_mergeable_bio(bio, dun, bio_encrypted, 0, bi_crypt_ref)) {
 			__submit_bio(F2FS_I_SB(inode), bio, DATA);
 			bio = NULL;
 		}

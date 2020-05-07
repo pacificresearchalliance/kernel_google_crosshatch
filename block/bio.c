@@ -572,6 +572,9 @@ static inline void bio_clone_crypt_key(struct bio *dst, const struct bio *src)
 #ifdef CONFIG_DM_DEFAULT_KEY
 	dst->bi_crypt_key = src->bi_crypt_key;
 	dst->bi_crypt_skip = src->bi_crypt_skip;
+#ifdef CONFIG_DM_PERUSER_KEY
+	dst->bi_crypt_ref = src->bi_crypt_ref;
+#endif
 #endif
 	dst->bi_dio_inode = src->bi_dio_inode;
 #endif
