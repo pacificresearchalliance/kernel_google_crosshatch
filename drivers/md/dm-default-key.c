@@ -25,11 +25,12 @@
 #define UNKNOWN_USER (-1)
 struct user_key{
 	int32_t user_id;
-	uint8_t me_key_ref[FS_KEY_DESCRIPTOR_SIZE];
-	struct blk_encryption_key me_key;
+	uint8_t mde_key_ref[FS_KEY_DESCRIPTOR_SIZE];
+	uint8_t mce_key_ref[FS_KEY_DESCRIPTOR_SIZE];
+	struct blk_encryption_key mde_key;
+	struct blk_encryption_key mce_key;
 	uint8_t de_key_ref[FS_KEY_DESCRIPTOR_SIZE];
 	uint8_t ce_key_ref[FS_KEY_DESCRIPTOR_SIZE];
-	
 };
 #endif
 
@@ -185,7 +186,6 @@ static int dm_get_key(const struct default_key_c *dkc, struct bio *bio,
 {
 	struct inode *inode;
 	int i;
-	const struct blk_encryption_key *key = NULL;
 	uint8_t *key_ref = NULL;
 
 	if (!bio)
@@ -199,7 +199,7 @@ static int dm_get_key(const struct default_key_c *dkc, struct bio *bio,
 	if (!IS_ENCRYPTED(inode)){
 		return -EINVAL;
 	}
-	// check key descriptor is not empty
+	// use key descriptor if not empty
 	for (i = 0; i < FS_KEY_DESCRIPTOR_SIZE; i++){
 		if (inode->i_key_desc[i] != 0){
 			key_ref = inode->i_key_desc;
@@ -211,14 +211,16 @@ static int dm_get_key(const struct default_key_c *dkc, struct bio *bio,
 	}
 	// search for user key
 	for (i = 0; i < ANDROID_USERS_LIMIT; i++){
-		if (!memcmp(key_ref, dkc->user_keys[i].de_key_ref, FS_KEY_DESCRIPTOR_SIZE)
-		  || !memcmp(key_ref, dkc->user_keys[i].ce_key_ref, FS_KEY_DESCRIPTOR_SIZE)){
-			key = &dkc->user_keys[i].me_key;
-			*me_key = key;
+		if (!memcmp(key_ref, dkc->user_keys[i].de_key_ref, FS_KEY_DESCRIPTOR_SIZE)){
+			*me_key = &dkc->user_keys[i].mde_key;
+			break;
+		}
+		if (!memcmp(key_ref, dkc->user_keys[i].ce_key_ref, FS_KEY_DESCRIPTOR_SIZE)){
+			*me_key = &dkc->user_keys[i].mce_key;
 			break;
 		}
 	}
-	if (!key){
+	if (!*me_key){
 		return -EINVAL;
 	}
 	return 0;
@@ -264,7 +266,7 @@ static int default_key_message(struct dm_target *ti, unsigned argc, char **argv)
 	if (!argc){
 		return -ENODATA;
 	}
-#define TOKENS_IN_MESSAGE 5 //4 keys + 1 user_id
+#define TOKENS_IN_MESSAGE 7 //6 keys + 1 user_id
 	// Parse message with keys info from vold
 	sscanf(argv[0], "%d", &me_num);
 	if (argc != (1 + me_num*TOKENS_IN_MESSAGE)){
@@ -275,19 +277,27 @@ static int default_key_message(struct dm_target *ti, unsigned argc, char **argv)
 	for (i = 0 ; i < me_num ; i++){
 		err = true;
 		if (sscanf(argv[i*TOKENS_IN_MESSAGE+1], "%d", &dkc->user_keys[i].user_id) == 1){
-			if (hex2bin(dkc->user_keys[i].me_key_ref, argv[i*TOKENS_IN_MESSAGE+2],
+			if (hex2bin(dkc->user_keys[i].mde_key_ref, argv[i*TOKENS_IN_MESSAGE+2],
 					FS_KEY_DESCRIPTOR_SIZE) == 0) {
 				err = false;
 			}
-			if (hex2bin(dkc->user_keys[i].me_key.raw, argv[i*TOKENS_IN_MESSAGE+3],
+			if (hex2bin(dkc->user_keys[i].mde_key.raw, argv[i*TOKENS_IN_MESSAGE+3],
 					BLK_ENCRYPTION_KEY_SIZE_AES_256_XTS) == 0) {
 				err = false;
 			}
-			if (hex2bin(dkc->user_keys[i].de_key_ref, argv[i*TOKENS_IN_MESSAGE+4],
+			if (hex2bin(dkc->user_keys[i].mce_key_ref, argv[i*TOKENS_IN_MESSAGE+4],
 					FS_KEY_DESCRIPTOR_SIZE) == 0) {
 				err = false;
 			}
-			if (hex2bin(dkc->user_keys[i].ce_key_ref, argv[i*TOKENS_IN_MESSAGE+5],
+			if (hex2bin(dkc->user_keys[i].mce_key.raw, argv[i*TOKENS_IN_MESSAGE+5],
+					BLK_ENCRYPTION_KEY_SIZE_AES_256_XTS) == 0) {
+				err = false;
+			}
+			if (hex2bin(dkc->user_keys[i].de_key_ref, argv[i*TOKENS_IN_MESSAGE+6],
+					FS_KEY_DESCRIPTOR_SIZE) == 0) {
+				err = false;
+			}
+			if (hex2bin(dkc->user_keys[i].ce_key_ref, argv[i*TOKENS_IN_MESSAGE+7],
 					FS_KEY_DESCRIPTOR_SIZE) == 0) {
 				err = false;
 			}
@@ -295,7 +305,8 @@ static int default_key_message(struct dm_target *ti, unsigned argc, char **argv)
 		if (err){
 			dkc->user_keys[i].user_id = UNKNOWN_USER;
 			DMERR("Failed to parse keys: %s", argv[i*TOKENS_IN_MESSAGE+1]);
-		}
+		} else
+			DMINFO("Received keys for user %d", dkc->user_keys[i].user_id);
 	}
 #endif
 	return 0;
