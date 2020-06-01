@@ -3708,4 +3708,13 @@ static inline bool is_journalled_quota(struct f2fs_sb_info *sbi)
 	return false;
 }
 
+static inline bool is_ce_storage(struct inode *inode)
+{
+#ifdef CONFIG_DM_PERUSER_KEY
+	return !memcmp(inode->i_key_desc, "ckey", FS_KEY_DESCRIPTOR_SIZE-4);
+#else
+	return false;
+#endif
+}
+
 #endif
