@@ -740,3 +740,4 @@ static inline int fscrypt_encrypt_symlink(struct inode *inode,
 		return __fscrypt_encrypt_symlink(inode, target, len, disk_link);
 	return 0;
 }
+#endif	/* _LINUX_FSCRYPT_H */

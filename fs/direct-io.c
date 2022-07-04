@@ -757,11 +757,14 @@ static inline int dio_send_cur_page(struct dio *dio, struct dio_submit *sdio,
 		struct buffer_head *map_bh)
 {
 	int ret = 0;
+	u8 *bi_crypt_ref = NULL;
 
 	if (sdio->bio) {
 		loff_t cur_offset = sdio->cur_page_fs_offset;
 		loff_t bio_next_offset = sdio->logical_offset_in_bio +
 			sdio->bio->bi_iter.bi_size;
+
+		bi_crypt_ref = fscrypt_get_key_ref(dio->inode);
 
 		/*
 		 * See whether this new request is contiguous with the old.
@@ -789,7 +792,7 @@ static inline int dio_send_cur_page(struct dio *dio, struct dio_submit *sdio,
 		    (dio_fstype_sets_dun(dio) &&
 		     !fscrypt_mergeable_bio(sdio->bio, dio->inode,
 					    cur_offset >>
-					    dio->inode->i_blkbits)))
+					    dio->inode->i_blkbits, bi_crypt_ref)))
 			dio_bio_submit(dio, sdio);
 	}
 

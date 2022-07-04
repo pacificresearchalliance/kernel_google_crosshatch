@@ -588,6 +588,7 @@ int f2fs_merge_page_bio(struct f2fs_io_info *fio)
 	struct bio *bio = *fio->bio;
 	struct page *page = fio->encrypted_page ?
 			fio->encrypted_page : fio->page;
+	u8 *bi_crypt_ref;
 
 	if (!f2fs_is_valid_blkaddr(fio->sbi, fio->new_blkaddr,
 			__is_meta_io(fio) ? META_GENERIC : DATA_GENERIC))
@@ -602,7 +603,6 @@ int f2fs_merge_page_bio(struct f2fs_io_info *fio)
 		bio = NULL;
 	}
 
-	u8 *bi_crypt_ref;
 	bi_crypt_ref = fscrypt_get_key_ref(fio->page->mapping->host);
 
 	/* ICE support */
@@ -1732,6 +1732,8 @@ static int f2fs_read_single_page(struct inode *inode, struct page *page,
 	sector_t block_nr;
 	int ret = 0;
 
+	u8 *bi_crypt_ref;
+
 	block_in_file = (sector_t)page_index(page);
 	last_block = block_in_file + nr_pages;
 	last_block_in_file = (i_size_read(inode) + blocksize - 1) >>
@@ -1800,7 +1802,6 @@ submit_and_realloc:
 		bio = NULL;
 	}
 
-	u8 *bi_crypt_ref;
 	bi_crypt_ref = fscrypt_get_key_ref(inode);
 	if (bio && !f2fs_crypt_mergeable_bio(bio, inode, page->index, NULL, bi_crypt_ref)) {
 		__f2fs_submit_read_bio(F2FS_I_SB(inode), bio, DATA);
@@ -1861,7 +1862,6 @@ static int f2fs_mpage_readpages(struct address_space *mapping,
 	struct inode *inode = mapping->host;
 	struct f2fs_map_blocks map;
 	int ret = 0;
-	u8 *bi_crypt_ref;
 
 	map.m_pblk = 0;
 	map.m_lblk = 0;
